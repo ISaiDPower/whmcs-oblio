@@ -44,6 +44,34 @@ function oblio_get_module_settings()
 }
 
 /**
+ * Attempt to send an invoice to SPV (e-Factura) if enabled.
+ *
+ * @param OblioApi $api         Authenticated API client
+ * @param array    $settings    Module settings
+ * @param int      $invoiceId   WHMCS invoice ID (for logging)
+ * @param string   $oblioSeries Oblio document series
+ * @param string   $oblioNumber Oblio document number
+ */
+function oblio_try_send_spv($api, array $settings, $invoiceId, $oblioSeries, $oblioNumber)
+{
+    if (empty($settings['enable_spv']) || $settings['enable_spv'] !== 'on') {
+        return;
+    }
+    if (empty($oblioSeries) || empty($oblioNumber)) {
+        return;
+    }
+
+    try {
+        $spvResponse = $api->sendToSPV($settings['company_cif'], $oblioSeries, $oblioNumber);
+        $spvSent = isset($spvResponse['data']['sent']) && $spvResponse['data']['sent'];
+        $spvText = isset($spvResponse['data']['text']) ? $spvResponse['data']['text'] : '';
+        logActivity('Oblio: e-Factura SPV for invoice #' . $invoiceId . ': ' . ($spvSent ? 'sent' : 'not sent') . ' - ' . $spvText);
+    } catch (\Exception $e) {
+        logActivity('Oblio: Failed to send e-Factura to SPV for invoice #' . $invoiceId . ': ' . $e->getMessage());
+    }
+}
+
+/**
  * Send a document to Oblio.
  *
  * @param int    $invoiceId WHMCS invoice ID
@@ -99,18 +127,7 @@ function oblio_send_document($invoiceId, $docType, array $settings)
                 WhmcsHelper::logSync($invoiceId, $docType, $oblioSeries, $oblioNumber, 'success');
                 logActivity('Oblio: Invoice created from proforma for invoice #' . $invoiceId . ': ' . $oblioSeries . ' #' . $oblioNumber);
 
-                // Auto-send to SPV (e-Factura) if enabled
-                if (!empty($settings['enable_spv']) && $settings['enable_spv'] === 'on'
-                    && !empty($oblioSeries) && !empty($oblioNumber)) {
-                    try {
-                        $spvResponse = $api->sendToSPV($settings['company_cif'], $oblioSeries, $oblioNumber);
-                        $spvSent = isset($spvResponse['data']['sent']) && $spvResponse['data']['sent'];
-                        $spvText = isset($spvResponse['data']['text']) ? $spvResponse['data']['text'] : '';
-                        logActivity('Oblio: e-Factura SPV for invoice #' . $invoiceId . ': ' . ($spvSent ? 'sent' : 'not sent') . ' - ' . $spvText);
-                    } catch (\Exception $spvEx) {
-                        logActivity('Oblio: Failed to send e-Factura to SPV for invoice #' . $invoiceId . ': ' . $spvEx->getMessage());
-                    }
-                }
+                oblio_try_send_spv($api, $settings, $invoiceId, $oblioSeries, $oblioNumber);
 
                 return;
             }
@@ -143,16 +160,8 @@ function oblio_send_document($invoiceId, $docType, array $settings)
         logActivity('Oblio: ' . ucfirst($docType) . ' created for invoice #' . $invoiceId . ': ' . $oblioSeries . ' #' . $oblioNumber);
 
         // Auto-send to SPV (e-Factura) if enabled and this is an invoice
-        if ($docType === 'invoice' && !empty($settings['enable_spv']) && $settings['enable_spv'] === 'on'
-            && !empty($oblioSeries) && !empty($oblioNumber)) {
-            try {
-                $spvResponse = $api->sendToSPV($settings['company_cif'], $oblioSeries, $oblioNumber);
-                $spvSent = isset($spvResponse['data']['sent']) && $spvResponse['data']['sent'];
-                $spvText = isset($spvResponse['data']['text']) ? $spvResponse['data']['text'] : '';
-                logActivity('Oblio: e-Factura SPV for invoice #' . $invoiceId . ': ' . ($spvSent ? 'sent' : 'not sent') . ' - ' . $spvText);
-            } catch (\Exception $spvEx) {
-                logActivity('Oblio: Failed to send e-Factura to SPV for invoice #' . $invoiceId . ': ' . $spvEx->getMessage());
-            }
+        if ($docType === 'invoice') {
+            oblio_try_send_spv($api, $settings, $invoiceId, $oblioSeries, $oblioNumber);
         }
     } catch (\Exception $e) {
         WhmcsHelper::logSync($invoiceId, $docType, '', '', 'error', $e->getMessage());
