@@ -271,8 +271,10 @@ class WhmcsHelper
 
         $prefix = self::getCountryDialCode($country);
         if (!empty($prefix)) {
-            // Strip leading zero from local numbers before adding prefix
-            $phone = ltrim($phone, '0');
+            // Strip single leading zero from local numbers before adding prefix
+            if (substr($phone, 0, 1) === '0') {
+                $phone = substr($phone, 1);
+            }
             return $prefix . $phone;
         }
 
