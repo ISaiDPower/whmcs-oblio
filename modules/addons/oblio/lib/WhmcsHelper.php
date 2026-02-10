@@ -36,6 +36,9 @@ class WhmcsHelper
             $clientCui = self::getCustomFieldValue($client['id'], $cuiFieldId);
         }
 
+        // Resolve currency code from client details (GetInvoice does not return currency info)
+        $currencyCode = self::getClientCurrencyCode($client);
+
         $clientData = [
             'name'         => trim($client['companyname'] ?: ($client['firstname'] . ' ' . $client['lastname'])),
             'cif'          => $clientCui,
@@ -45,7 +48,7 @@ class WhmcsHelper
             'city'         => $client['city'],
             'country'      => $client['country'],
             'email'        => $client['email'],
-            'phone'        => $client['phonenumber'],
+            'phone'        => self::formatPhoneWithPrefix($client['phonenumber'], $client['country']),
             'contact'      => trim($client['firstname'] . ' ' . $client['lastname']),
             'vatPayer'     => !empty($clientCui) ? 1 : 0,
             'save'         => 0,
@@ -59,16 +62,13 @@ class WhmcsHelper
                 }
                 $products[] = [
                     'name'            => $item['description'],
-                    'code'            => '',
-                    'description'     => '',
-                    'price'           => (float)$item['amount'],
+                    'price'           => round((float)$item['amount'], 2),
                     'measuringUnit'   => 'buc',
-                    'currency'        => $invoice['currencycode'],
+                    'currency'        => $currencyCode,
                     'vatName'         => 'Normala',
                     'vatPercentage'   => 0,  // Overridden by module's configured VAT %
-                    'vatIncluded'     => 1,
+                    'vatIncluded'     => 0,
                     'quantity'        => 1,
-                    'productType'     => 'Serviciu',
                     'save'            => 0,
                 ];
             }
@@ -86,7 +86,7 @@ class WhmcsHelper
             'seriesName'     => $seriesName,
             'language'       => $docLanguage,
             'precision'      => 2,
-            'currency'       => $invoice['currencycode'],
+            'currency'       => $currencyCode,
             'products'       => $products,
             'mentions'       => 'WHMCS Invoice #' . $invoiceId,
             'useStock'       => 0,
@@ -123,6 +123,39 @@ class WhmcsHelper
             return [];
         }
         return $result;
+    }
+
+    /**
+     * Resolve the currency code (e.g. EUR, RON) for a client.
+     *
+     * GetClientsDetails returns 'currency_code' directly in newer WHMCS versions.
+     * Falls back to looking up the currency ID via GetCurrencies.
+     *
+     * @param array $client Client data from getClient()
+     * @return string 3-letter currency code (defaults to RON)
+     */
+    public static function getClientCurrencyCode(array $client)
+    {
+        // Prefer the currency_code field from GetClientsDetails (WHMCS 7.x+)
+        if (!empty($client['currency_code'])) {
+            return $client['currency_code'];
+        }
+
+        // Fall back to looking up the currency by ID
+        $currencyId = isset($client['currency']) ? (int)$client['currency'] : 0;
+        if ($currencyId > 0) {
+            $result = localAPI('GetCurrencies', []);
+            if (isset($result['result']) && $result['result'] === 'success'
+                && !empty($result['currencies']['currency'])) {
+                foreach ($result['currencies']['currency'] as $currency) {
+                    if ((int)$currency['id'] === $currencyId) {
+                        return $currency['code'];
+                    }
+                }
+            }
+        }
+
+        return 'RON';
     }
 
     /**
@@ -245,5 +278,103 @@ class WhmcsHelper
             // Fall through
         }
         return null;
+    }
+
+    /**
+     * Format a phone number with country dial prefix.
+     *
+     * If the phone number already starts with '+' or '00', it is returned as-is.
+     * Otherwise, the country dial code is prepended based on the ISO 2-letter country code.
+     *
+     * @param string $phone   Raw phone number
+     * @param string $country ISO 3166-1 alpha-2 country code (e.g., 'RO', 'DE')
+     * @return string Phone number with country prefix
+     */
+    public static function formatPhoneWithPrefix($phone, $country)
+    {
+        $phone = trim($phone);
+        if (empty($phone)) {
+            return '';
+        }
+
+        // Already has international prefix
+        if (strpos($phone, '+') === 0 || strpos($phone, '00') === 0) {
+            return $phone;
+        }
+
+        $prefix = self::getCountryDialCode($country);
+        if (!empty($prefix)) {
+            // Strip single leading zero from local numbers before adding prefix
+            if (substr($phone, 0, 1) === '0') {
+                $phone = substr($phone, 1);
+            }
+            return $prefix . $phone;
+        }
+
+        return $phone;
+    }
+
+    /**
+     * Get the dial code for a given ISO 2-letter country code.
+     *
+     * @param string $countryCode ISO 3166-1 alpha-2 country code
+     * @return string Dial code with '+' prefix, or empty string if unknown
+     */
+    public static function getCountryDialCode($countryCode)
+    {
+        $codes = [
+            'AD' => '+376', 'AE' => '+971', 'AF' => '+93',  'AG' => '+1',
+            'AL' => '+355', 'AM' => '+374', 'AO' => '+244', 'AR' => '+54',
+            'AT' => '+43',  'AU' => '+61',  'AZ' => '+994', 'BA' => '+387',
+            'BB' => '+1',   'BD' => '+880', 'BE' => '+32',  'BF' => '+226',
+            'BG' => '+359', 'BH' => '+973', 'BI' => '+257', 'BJ' => '+229',
+            'BN' => '+673', 'BO' => '+591', 'BR' => '+55',  'BS' => '+1',
+            'BT' => '+975', 'BW' => '+267', 'BY' => '+375', 'BZ' => '+501',
+            'CA' => '+1',   'CD' => '+243', 'CF' => '+236', 'CG' => '+242',
+            'CH' => '+41',  'CI' => '+225', 'CL' => '+56',  'CM' => '+237',
+            'CN' => '+86',  'CO' => '+57',  'CR' => '+506', 'CU' => '+53',
+            'CV' => '+238', 'CY' => '+357', 'CZ' => '+420', 'DE' => '+49',
+            'DJ' => '+253', 'DK' => '+45',  'DM' => '+1',   'DO' => '+1',
+            'DZ' => '+213', 'EC' => '+593', 'EE' => '+372', 'EG' => '+20',
+            'ER' => '+291', 'ES' => '+34',  'ET' => '+251', 'FI' => '+358',
+            'FJ' => '+679', 'FR' => '+33',  'GA' => '+241', 'GB' => '+44',
+            'GD' => '+1',   'GE' => '+995', 'GH' => '+233', 'GM' => '+220',
+            'GN' => '+224', 'GQ' => '+240', 'GR' => '+30',  'GT' => '+502',
+            'GW' => '+245', 'GY' => '+592', 'HK' => '+852', 'HN' => '+504',
+            'HR' => '+385', 'HT' => '+509', 'HU' => '+36',  'ID' => '+62',
+            'IE' => '+353', 'IL' => '+972', 'IN' => '+91',   'IQ' => '+964',
+            'IR' => '+98',  'IS' => '+354', 'IT' => '+39',   'JM' => '+1',
+            'JO' => '+962', 'JP' => '+81',  'KE' => '+254',  'KG' => '+996',
+            'KH' => '+855', 'KI' => '+686', 'KM' => '+269',  'KN' => '+1',
+            'KP' => '+850', 'KR' => '+82',  'KW' => '+965',  'KZ' => '+7',
+            'LA' => '+856', 'LB' => '+961', 'LC' => '+1',    'LI' => '+423',
+            'LK' => '+94',  'LR' => '+231', 'LS' => '+266',  'LT' => '+370',
+            'LU' => '+352', 'LV' => '+371', 'LY' => '+218',  'MA' => '+212',
+            'MC' => '+377', 'MD' => '+373', 'ME' => '+382',  'MG' => '+261',
+            'MK' => '+389', 'ML' => '+223', 'MM' => '+95',   'MN' => '+976',
+            'MO' => '+853', 'MR' => '+222', 'MT' => '+356',  'MU' => '+230',
+            'MV' => '+960', 'MW' => '+265', 'MX' => '+52',   'MY' => '+60',
+            'MZ' => '+258', 'NA' => '+264', 'NE' => '+227',  'NG' => '+234',
+            'NI' => '+505', 'NL' => '+31',  'NO' => '+47',   'NP' => '+977',
+            'NR' => '+674', 'NZ' => '+64',  'OM' => '+968',  'PA' => '+507',
+            'PE' => '+51',  'PG' => '+675', 'PH' => '+63',   'PK' => '+92',
+            'PL' => '+48',  'PT' => '+351', 'PY' => '+595',  'QA' => '+974',
+            'RO' => '+40',  'RS' => '+381', 'RU' => '+7',    'RW' => '+250',
+            'SA' => '+966', 'SB' => '+677', 'SC' => '+248',  'SD' => '+249',
+            'SE' => '+46',  'SG' => '+65',  'SI' => '+386',  'SK' => '+421',
+            'SL' => '+232', 'SM' => '+378', 'SN' => '+221',  'SO' => '+252',
+            'SR' => '+597', 'SS' => '+211', 'ST' => '+239',  'SV' => '+503',
+            'SY' => '+963', 'SZ' => '+268', 'TD' => '+235',  'TG' => '+228',
+            'TH' => '+66',  'TJ' => '+992', 'TL' => '+670',  'TM' => '+993',
+            'TN' => '+216', 'TO' => '+676', 'TR' => '+90',   'TT' => '+1',
+            'TV' => '+688', 'TW' => '+886', 'TZ' => '+255',  'UA' => '+380',
+            'UG' => '+256', 'US' => '+1',   'UY' => '+598',  'UZ' => '+998',
+            'VA' => '+379', 'VC' => '+1',   'VE' => '+58',   'VN' => '+84',
+            'VU' => '+678', 'WS' => '+685', 'XK' => '+383',  'YE' => '+967',
+            'ZA' => '+27',  'ZM' => '+260', 'ZW' => '+263',
+        ];
+
+        $countryCode = strtoupper(trim($countryCode));
+        return isset($codes[$countryCode]) ? $codes[$countryCode] : '';
     }
 }
