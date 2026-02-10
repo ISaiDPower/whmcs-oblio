@@ -36,6 +36,9 @@ class WhmcsHelper
             $clientCui = self::getCustomFieldValue($client['id'], $cuiFieldId);
         }
 
+        // Resolve currency code from client details (GetInvoice does not return currency info)
+        $currencyCode = self::getClientCurrencyCode($client);
+
         $clientData = [
             'name'         => trim($client['companyname'] ?: ($client['firstname'] . ' ' . $client['lastname'])),
             'cif'          => $clientCui,
@@ -59,16 +62,13 @@ class WhmcsHelper
                 }
                 $products[] = [
                     'name'            => $item['description'],
-                    'code'            => '',
-                    'description'     => '',
                     'price'           => round((float)$item['amount'], 2),
                     'measuringUnit'   => 'buc',
-                    'currency'        => $invoice['currencycode'],
+                    'currency'        => $currencyCode,
                     'vatName'         => 'Normala',
                     'vatPercentage'   => 0,  // Overridden by module's configured VAT %
                     'vatIncluded'     => 0,
                     'quantity'        => 1,
-                    'productType'     => 'Serviciu',
                     'save'            => 0,
                 ];
             }
@@ -86,7 +86,7 @@ class WhmcsHelper
             'seriesName'     => $seriesName,
             'language'       => $docLanguage,
             'precision'      => 2,
-            'currency'       => $invoice['currencycode'],
+            'currency'       => $currencyCode,
             'products'       => $products,
             'mentions'       => 'WHMCS Invoice #' . $invoiceId,
             'useStock'       => 0,
@@ -123,6 +123,39 @@ class WhmcsHelper
             return [];
         }
         return $result;
+    }
+
+    /**
+     * Resolve the currency code (e.g. EUR, RON) for a client.
+     *
+     * GetClientsDetails returns 'currency_code' directly in newer WHMCS versions.
+     * Falls back to looking up the currency ID via GetCurrencies.
+     *
+     * @param array $client Client data from getClient()
+     * @return string 3-letter currency code (defaults to RON)
+     */
+    public static function getClientCurrencyCode(array $client)
+    {
+        // Prefer the currency_code field from GetClientsDetails (WHMCS 7.x+)
+        if (!empty($client['currency_code'])) {
+            return $client['currency_code'];
+        }
+
+        // Fall back to looking up the currency by ID
+        $currencyId = isset($client['currency']) ? (int)$client['currency'] : 0;
+        if ($currencyId > 0) {
+            $result = localAPI('GetCurrencies', []);
+            if (isset($result['result']) && $result['result'] === 'success'
+                && !empty($result['currencies']['currency'])) {
+                foreach ($result['currencies']['currency'] as $currency) {
+                    if ((int)$currency['id'] === $currencyId) {
+                        return $currency['code'];
+                    }
+                }
+            }
+        }
+
+        return 'RON';
     }
 
     /**
