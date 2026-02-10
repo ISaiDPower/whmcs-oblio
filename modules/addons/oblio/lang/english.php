@@ -36,3 +36,6 @@ $_ADDONLANG['already_synced']        = 'This invoice has already been synced.';
 $_ADDONLANG['sync_success']          = 'Document created in Oblio successfully.';
 $_ADDONLANG['sync_failed']           = 'Failed to sync document to Oblio.';
 $_ADDONLANG['companies_found']       = 'Companies found';
+$_ADDONLANG['spv_sent']              = 'e-Factura sent to SPV';
+$_ADDONLANG['spv_failed']            = 'Failed to send e-Factura to SPV';
+$_ADDONLANG['invoice_from_proforma'] = 'Invoice created from proforma reference';

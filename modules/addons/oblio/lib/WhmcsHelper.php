@@ -47,8 +47,8 @@ class WhmcsHelper
             'email'        => $client['email'],
             'phone'        => $client['phonenumber'],
             'contact'      => trim($client['firstname'] . ' ' . $client['lastname']),
-            'isTaxPayer'   => !empty($clientCui),
-            'saveToDb'     => false,
+            'vatPayer'     => !empty($clientCui) ? 1 : 0,
+            'save'         => 0,
         ];
 
         $products = [];
@@ -66,9 +66,10 @@ class WhmcsHelper
                     'currency'        => $invoice['currencycode'],
                     'vatName'         => 'Normala',
                     'vatPercentage'   => 0,  // Overridden by module's configured VAT %
-                    'vatIncluded'     => true,
+                    'vatIncluded'     => 1,
                     'quantity'        => 1,
                     'productType'     => 'Serviciu',
+                    'save'            => 0,
                 ];
             }
         }
@@ -221,5 +222,28 @@ class WhmcsHelper
             // Fall through
         }
         return false;
+    }
+
+    /**
+     * Get the synced proforma record for an invoice, if one exists.
+     * Used to create an invoice referencing the original proforma.
+     *
+     * @param int $invoiceId
+     * @return object|null The proforma sync record or null
+     */
+    public static function getSyncedProforma($invoiceId)
+    {
+        try {
+            if (class_exists('\\WHMCS\\Database\\Capsule')) {
+                return \WHMCS\Database\Capsule::table('mod_oblio_invoices')
+                    ->where('invoice_id', $invoiceId)
+                    ->where('oblio_type', 'proforma')
+                    ->where('status', 'success')
+                    ->first();
+            }
+        } catch (\Exception $e) {
+            // Fall through
+        }
+        return null;
     }
 }

@@ -74,6 +74,49 @@ function oblio_send_document($invoiceId, $docType, array $settings)
             return;
         }
 
+        $api = new OblioApi($settings['api_email'], $settings['api_secret']);
+
+        // When creating an invoice, check if a proforma was previously synced for this
+        // WHMCS invoice. If so, create the invoice referencing the proforma (Romanian flow).
+        if ($docType === 'invoice') {
+            $proforma = WhmcsHelper::getSyncedProforma($invoiceId);
+            if ($proforma && !empty($proforma->oblio_series) && !empty($proforma->oblio_number)) {
+                $payload = [
+                    'cif'               => $settings['company_cif'],
+                    'seriesName'        => $seriesName,
+                    'referenceDocument' => [
+                        'type'       => 'Proforma',
+                        'seriesName' => $proforma->oblio_series,
+                        'number'     => $proforma->oblio_number,
+                    ],
+                ];
+
+                $response = $api->createDocument('invoice', $payload);
+
+                $oblioSeries = isset($response['data']['seriesName']) ? $response['data']['seriesName'] : $seriesName;
+                $oblioNumber = isset($response['data']['number']) ? $response['data']['number'] : '';
+
+                WhmcsHelper::logSync($invoiceId, $docType, $oblioSeries, $oblioNumber, 'success');
+                logActivity('Oblio: Invoice created from proforma for invoice #' . $invoiceId . ': ' . $oblioSeries . ' #' . $oblioNumber);
+
+                // Auto-send to SPV (e-Factura) if enabled
+                if (!empty($settings['enable_spv']) && $settings['enable_spv'] === 'on'
+                    && !empty($oblioSeries) && !empty($oblioNumber)) {
+                    try {
+                        $spvResponse = $api->sendToSPV($settings['company_cif'], $oblioSeries, $oblioNumber);
+                        $spvSent = isset($spvResponse['data']['sent']) && $spvResponse['data']['sent'];
+                        $spvText = isset($spvResponse['data']['text']) ? $spvResponse['data']['text'] : '';
+                        logActivity('Oblio: e-Factura SPV for invoice #' . $invoiceId . ': ' . ($spvSent ? 'sent' : 'not sent') . ' - ' . $spvText);
+                    } catch (\Exception $spvEx) {
+                        logActivity('Oblio: Failed to send e-Factura to SPV for invoice #' . $invoiceId . ': ' . $spvEx->getMessage());
+                    }
+                }
+
+                return;
+            }
+        }
+
+        // Standard document creation (full payload)
         $vatPercentage = !empty($settings['vat_percentage']) ? (int)$settings['vat_percentage'] : 19;
 
         $payload = WhmcsHelper::buildDocumentPayload(
@@ -90,7 +133,6 @@ function oblio_send_document($invoiceId, $docType, array $settings)
         }
         unset($product);
 
-        $api = new OblioApi($settings['api_email'], $settings['api_secret']);
         $response = $api->createDocument($docType, $payload);
 
         $oblioSeries = isset($response['data']['seriesName']) ? $response['data']['seriesName'] : $seriesName;
@@ -99,6 +141,19 @@ function oblio_send_document($invoiceId, $docType, array $settings)
         WhmcsHelper::logSync($invoiceId, $docType, $oblioSeries, $oblioNumber, 'success');
 
         logActivity('Oblio: ' . ucfirst($docType) . ' created for invoice #' . $invoiceId . ': ' . $oblioSeries . ' #' . $oblioNumber);
+
+        // Auto-send to SPV (e-Factura) if enabled and this is an invoice
+        if ($docType === 'invoice' && !empty($settings['enable_spv']) && $settings['enable_spv'] === 'on'
+            && !empty($oblioSeries) && !empty($oblioNumber)) {
+            try {
+                $spvResponse = $api->sendToSPV($settings['company_cif'], $oblioSeries, $oblioNumber);
+                $spvSent = isset($spvResponse['data']['sent']) && $spvResponse['data']['sent'];
+                $spvText = isset($spvResponse['data']['text']) ? $spvResponse['data']['text'] : '';
+                logActivity('Oblio: e-Factura SPV for invoice #' . $invoiceId . ': ' . ($spvSent ? 'sent' : 'not sent') . ' - ' . $spvText);
+            } catch (\Exception $spvEx) {
+                logActivity('Oblio: Failed to send e-Factura to SPV for invoice #' . $invoiceId . ': ' . $spvEx->getMessage());
+            }
+        }
     } catch (\Exception $e) {
         WhmcsHelper::logSync($invoiceId, $docType, '', '', 'error', $e->getMessage());
         logActivity('Oblio: Failed to create ' . $docType . ' for invoice #' . $invoiceId . ': ' . $e->getMessage());

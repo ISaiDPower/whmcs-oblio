@@ -6,6 +6,8 @@ A WHMCS addon module that integrates with [Oblio.eu](https://www.oblio.eu) for a
 
 - **Automatic proforma sync** — When a new unpaid invoice is created in WHMCS, a proforma is automatically created in Oblio.
 - **Automatic invoice sync** — When an invoice is paid in WHMCS, a final invoice is created in Oblio (critical for e-Factura compliance).
+- **Invoice from proforma** — When a proforma was previously synced, the paid invoice is created in Oblio as a reference to the original proforma document.
+- **e-Factura SPV support** — Optionally auto-send invoices to SPV (Romania's e-Factura system) after creation in Oblio.
 - **CUI/CIF field mapping** — Administrators can select which custom client profile field stores the client's CUI/CIF (tax identification number).
 - **Manual sync** — Manually sync any WHMCS invoice to Oblio from the admin panel.
 - **Sync log** — View the history of all synced documents with status and error tracking.
@@ -13,6 +15,8 @@ A WHMCS addon module that integrates with [Oblio.eu](https://www.oblio.eu) for a
 - **Configurable VAT** — Set the default VAT percentage for line items.
 - **Multi-language documents** — Choose the language for documents created in Oblio (RO, EN, FR, DE).
 - **Country-agnostic** — Invoices are always sent to Oblio regardless of the client's country, as required by Romanian regulations.
+- **Cancel/Restore documents** — API support for cancelling and restoring documents.
+- **Invoice collection** — API support for recording invoice payments in Oblio.
 
 ## Requirements
 
@@ -39,6 +43,7 @@ A WHMCS addon module that integrates with [Oblio.eu](https://www.oblio.eu) for a
    - **Enable Proforma Sync** — Toggle automatic proforma creation
    - **Enable Invoice Sync** — Toggle automatic invoice creation (recommended: always on)
    - **Default VAT %** — Default VAT percentage (default: 19%)
+   - **Auto-send e-Factura to SPV** — Automatically send invoices to SPV after creation
 
 5. Click **Save Changes**.
 
@@ -51,6 +56,8 @@ A WHMCS addon module that integrates with [Oblio.eu](https://www.oblio.eu) for a
 
 2. **Customer pays the invoice** → WHMCS marks the invoice as paid.
    - If *Enable Invoice Sync* is on, the module creates a final invoice in Oblio via the `InvoicePaid` hook.
+   - If a proforma was previously synced for this invoice, the module creates the invoice as a reference to the proforma (using the Oblio `referenceDocument` API feature).
+   - If *Auto-send e-Factura to SPV* is enabled, the invoice is automatically submitted to SPV.
    - This step is **mandatory for Romanian e-Factura compliance**.
 
 ### CUI/CIF Detection
@@ -86,10 +93,15 @@ modules/addons/oblio/
 
 This module uses the [Oblio API](https://www.oblio.eu/api):
 
-- **Authentication**: OAuth2 client credentials grant
+- **Authentication**: OAuth2 client credentials grant (`application/x-www-form-urlencoded`)
 - **Create documents**: `POST /api/docs/{type}` (type: `invoice` or `proforma`)
-- **Get documents**: `GET /api/docs/{type}`
-- **Nomenclature**: `GET /api/nomenclature/companies`, `/series`, `/vat_rates`
+- **Get documents**: `GET /api/docs/{type}?cif=...&seriesName=...&number=...`
+- **Cancel documents**: `PUT /api/docs/{type}/cancel`
+- **Restore documents**: `PUT /api/docs/{type}/restore`
+- **Delete documents**: `DELETE /api/docs/{type}`
+- **Collect invoice**: `PUT /api/docs/invoice/collect`
+- **e-Factura SPV**: `POST /api/docs/einvoice`
+- **Nomenclature**: `GET /api/nomenclature/companies`, `/series`, `/vat_rates`, `/languages`
 
 ## License
 

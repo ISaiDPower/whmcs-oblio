@@ -114,6 +114,11 @@ function oblio_config()
                 'Default'      => '19',
                 'Description'  => 'Default VAT percentage for line items (e.g., 19 for Romania).',
             ],
+            'enable_spv' => [
+                'FriendlyName' => 'Auto-send e-Factura to SPV',
+                'Type'         => 'yesno',
+                'Description'  => 'Automatically send invoices to SPV (e-Factura) after creation in Oblio.',
+            ],
         ],
     ];
 }

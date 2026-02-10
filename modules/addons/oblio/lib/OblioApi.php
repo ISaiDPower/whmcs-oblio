@@ -39,6 +39,7 @@ class OblioApi
 
     /**
      * Authenticate with the Oblio API using OAuth2 client credentials.
+     * Uses application/x-www-form-urlencoded as required by the Oblio API.
      *
      * @return string Access token
      * @throws \Exception
@@ -53,7 +54,7 @@ class OblioApi
             'client_id'     => $this->clientId,
             'client_secret' => $this->clientSecret,
             'grant_type'    => 'client_credentials',
-        ], false);
+        ], false, true);
 
         if (empty($response['access_token'])) {
             throw new \Exception('Oblio API authentication failed: ' . json_encode($response));
@@ -85,15 +86,17 @@ class OblioApi
      * Get a document from Oblio.
      *
      * @param string $type       Document type: 'invoice' or 'proforma'
+     * @param string $cif        Company CIF
      * @param string $seriesName Series name
      * @param string $number     Document number
      * @return array API response
      * @throws \Exception
      */
-    public function getDocument($type, $seriesName, $number)
+    public function getDocument($type, $cif, $seriesName, $number)
     {
         $this->authenticate();
         $query = http_build_query([
+            'cif'        => $cif,
             'seriesName' => $seriesName,
             'number'     => $number,
         ]);
@@ -101,22 +104,103 @@ class OblioApi
     }
 
     /**
-     * Delete a document from Oblio.
+     * Delete a document from Oblio (only works for last document in a series).
      *
      * @param string $type       Document type: 'invoice' or 'proforma'
+     * @param string $cif        Company CIF
      * @param string $seriesName Series name
      * @param string $number     Document number
      * @return array API response
      * @throws \Exception
      */
-    public function deleteDocument($type, $seriesName, $number)
+    public function deleteDocument($type, $cif, $seriesName, $number)
     {
         $this->authenticate();
-        $query = http_build_query([
+        return $this->makeRequest('DELETE', self::DOCS_ENDPOINT . $type, [
+            'cif'        => $cif,
             'seriesName' => $seriesName,
             'number'     => $number,
-        ]);
-        return $this->makeRequest('DELETE', self::DOCS_ENDPOINT . $type . '?' . $query, [], true);
+        ], true, true);
+    }
+
+    /**
+     * Cancel a document in Oblio.
+     *
+     * @param string $type       Document type: 'invoice', 'proforma', or 'notice'
+     * @param string $cif        Company CIF
+     * @param string $seriesName Series name
+     * @param string $number     Document number
+     * @return array API response
+     * @throws \Exception
+     */
+    public function cancelDocument($type, $cif, $seriesName, $number)
+    {
+        $this->authenticate();
+        return $this->makeRequest('PUT', self::DOCS_ENDPOINT . $type . '/cancel', [
+            'cif'        => $cif,
+            'seriesName' => $seriesName,
+            'number'     => $number,
+        ], true, true);
+    }
+
+    /**
+     * Restore a cancelled document in Oblio.
+     *
+     * @param string $type       Document type: 'invoice', 'proforma', or 'notice'
+     * @param string $cif        Company CIF
+     * @param string $seriesName Series name
+     * @param string $number     Document number
+     * @return array API response
+     * @throws \Exception
+     */
+    public function restoreDocument($type, $cif, $seriesName, $number)
+    {
+        $this->authenticate();
+        return $this->makeRequest('PUT', self::DOCS_ENDPOINT . $type . '/restore', [
+            'cif'        => $cif,
+            'seriesName' => $seriesName,
+            'number'     => $number,
+        ], true, true);
+    }
+
+    /**
+     * Collect (record payment for) an invoice in Oblio.
+     *
+     * @param string $cif        Company CIF
+     * @param string $seriesName Series name
+     * @param string $number     Document number
+     * @param array  $collect    Collection parameters (type, seriesName/documentNumber, value, etc.)
+     * @return array API response
+     * @throws \Exception
+     */
+    public function collectInvoice($cif, $seriesName, $number, array $collect)
+    {
+        $this->authenticate();
+        return $this->makeRequest('PUT', self::DOCS_ENDPOINT . 'invoice/collect', [
+            'cif'        => $cif,
+            'seriesName' => $seriesName,
+            'number'     => $number,
+            'collect'    => $collect,
+        ], true, true);
+    }
+
+    /**
+     * Send an invoice to SPV (e-Factura) in Oblio.
+     *
+     * @param string $cif        Company CIF
+     * @param string $seriesName Series name
+     * @param string $number     Document number
+     * @return array API response
+     * @throws \Exception
+     */
+    public function sendToSPV($cif, $seriesName, $number)
+    {
+        $this->authenticate();
+        return $this->makeRequest('POST', self::DOCS_ENDPOINT . 'einvoice', [
+            'cif'        => $cif,
+            'seriesName' => $seriesName,
+            'number'     => $number,
+        ], true, true);
     }
 
     /**
@@ -132,20 +216,16 @@ class OblioApi
     }
 
     /**
-     * Get series for a specific company and document type.
+     * Get all document series for a specific company.
      *
-     * @param string $cif  Company CIF
-     * @param string $type Document type: 'invoice' or 'proforma'
+     * @param string $cif Company CIF
      * @return array
      * @throws \Exception
      */
-    public function getSeries($cif, $type)
+    public function getSeries($cif)
     {
         $this->authenticate();
-        $query = http_build_query([
-            'cif'  => $cif,
-            'type' => $type,
-        ]);
+        $query = http_build_query(['cif' => $cif]);
         return $this->makeRequest('GET', self::NOMENCLATURE_ENDPOINT . 'series?' . $query, [], true);
     }
 
@@ -164,16 +244,31 @@ class OblioApi
     }
 
     /**
+     * Get available languages for a specific company.
+     *
+     * @param string $cif Company CIF
+     * @return array
+     * @throws \Exception
+     */
+    public function getLanguages($cif)
+    {
+        $this->authenticate();
+        $query = http_build_query(['cif' => $cif]);
+        return $this->makeRequest('GET', self::NOMENCLATURE_ENDPOINT . 'languages?' . $query, [], true);
+    }
+
+    /**
      * Make an HTTP request to the Oblio API.
      *
-     * @param string $method   HTTP method
-     * @param string $endpoint API endpoint path
-     * @param array  $data     Request data
-     * @param bool   $useAuth  Whether to include authorization header
+     * @param string $method      HTTP method (GET, POST, PUT, DELETE)
+     * @param string $endpoint    API endpoint path
+     * @param array  $data        Request data
+     * @param bool   $useAuth     Whether to include authorization header
+     * @param bool   $formEncoded Whether to send data as form-encoded (vs JSON)
      * @return array Decoded response
      * @throws \Exception
      */
-    private function makeRequest($method, $endpoint, array $data, $useAuth)
+    private function makeRequest($method, $endpoint, array $data, $useAuth, $formEncoded = false)
     {
         $url = self::BASE_URL . $endpoint;
 
@@ -190,11 +285,29 @@ class OblioApi
         if ($method === 'GET') {
             curl_setopt($ch, CURLOPT_HTTPGET, true);
         } elseif ($method === 'POST') {
-            $headers[] = 'Content-Type: application/json';
             curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+            if ($formEncoded) {
+                $headers[] = 'Content-Type: application/x-www-form-urlencoded';
+                curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+            } else {
+                $headers[] = 'Content-Type: application/json';
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+            }
+        } elseif ($method === 'PUT') {
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
+            if ($formEncoded) {
+                $headers[] = 'Content-Type: application/x-www-form-urlencoded';
+                curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+            } else {
+                $headers[] = 'Content-Type: application/json';
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+            }
         } elseif ($method === 'DELETE') {
             curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');
+            if (!empty($data)) {
+                $headers[] = 'Content-Type: application/x-www-form-urlencoded';
+                curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+            }
         }
 
         curl_setopt_array($ch, [
