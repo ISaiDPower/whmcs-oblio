@@ -46,7 +46,7 @@ function oblio_config()
         'name'        => 'Oblio Integration',
         'description' => 'Integrates WHMCS with Oblio.eu for automated invoice and proforma creation. Supports Romanian e-Factura regulations.',
         'version'     => '1.0.0',
-        'author'      => 'WHMCS Oblio',
+        'author'      => 'CROCKY SRL',
         'language'    => 'english',
         'fields'      => [
             'api_email' => [
