@@ -124,6 +124,16 @@ add_hook('InvoiceCreated', 1, function ($vars) {
         return;
     }
 
+    // Verify the invoice is unpaid (proforma) and has line items before syncing.
+    // Skip credit notes or already-paid invoices.
+    $invoice = WhmcsHelper::getInvoice($invoiceId);
+    if (empty($invoice) || $invoice['status'] !== 'Unpaid') {
+        return;
+    }
+    if (empty($invoice['items']['item'])) {
+        return;
+    }
+
     oblio_send_document($invoiceId, 'proforma', $settings);
 });
 

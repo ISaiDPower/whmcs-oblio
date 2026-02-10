@@ -60,6 +60,8 @@ class OblioApi
         }
 
         $this->accessToken = $response['access_token'];
+        // Subtract 60 seconds as a buffer to account for clock skew and prevent
+        // authentication failures if the token expires during a request.
         $this->tokenExpiresAt = time() + (int)($response['expires_in'] ?? 3600) - 60;
 
         return $this->accessToken;

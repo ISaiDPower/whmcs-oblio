@@ -65,7 +65,7 @@ class WhmcsHelper
                     'measuringUnit'   => 'buc',
                     'currency'        => $invoice['currencycode'],
                     'vatName'         => 'Normala',
-                    'vatPercentage'   => 19,
+                    'vatPercentage'   => 0,  // Overridden by module's configured VAT %
                     'vatIncluded'     => true,
                     'quantity'        => 1,
                     'productType'     => 'Serviciu',
@@ -193,7 +193,7 @@ class WhmcsHelper
                     'status'       => $status,
                     'message'      => mb_substr($message, 0, 500),
                     'created_at'   => date('Y-m-d H:i:s'),
-                ]);
+                ]); // Message truncated to 500 chars to fit the database text column safely
             }
         } catch (\Exception $e) {
             logActivity('Oblio: Failed to log sync: ' . $e->getMessage());

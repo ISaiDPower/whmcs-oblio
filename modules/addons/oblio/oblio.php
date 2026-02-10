@@ -209,9 +209,17 @@ function oblio_output($vars)
     $apiSecret  = $vars['api_secret'];
     $companyCif = $vars['company_cif'];
 
-    // Handle manual sync action
+    // Handle manual sync action (validate CSRF token for POST requests)
     if (isset($_POST['action'])) {
-        if ($_POST['action'] === 'sync_invoice' && !empty($_POST['invoice_id'])) {
+        $tokenValid = false;
+        if (!empty($_SESSION['oblio_csrf_token']) && !empty($_POST['csrf_token'])
+            && hash_equals($_SESSION['oblio_csrf_token'], $_POST['csrf_token'])) {
+            $tokenValid = true;
+        }
+
+        if (!$tokenValid) {
+            echo '<div class="alert alert-danger">Invalid or expired CSRF token. Please try again.</div>';
+        } elseif ($_POST['action'] === 'sync_invoice' && !empty($_POST['invoice_id'])) {
             $result = oblio_manual_sync((int)$_POST['invoice_id'], $_POST['doc_type'], $vars);
             if ($result['success']) {
                 echo '<div class="alert alert-success">' . htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8') . '</div>';
@@ -231,12 +239,17 @@ function oblio_output($vars)
     // Admin page HTML
     echo '<h2>Oblio Integration</h2>';
 
+    // Generate CSRF token for forms
+    $csrfToken = bin2hex(random_bytes(32));
+    $_SESSION['oblio_csrf_token'] = $csrfToken;
+
     // Connection test
     echo '<div class="panel panel-default">';
     echo '<div class="panel-heading"><h3 class="panel-title">API Connection</h3></div>';
     echo '<div class="panel-body">';
     echo '<form method="post" action="' . htmlspecialchars($moduleLink, ENT_QUOTES, 'UTF-8') . '">';
     echo '<input type="hidden" name="action" value="test_connection">';
+    echo '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') . '">';
     echo '<p>Test the connection to the Oblio API with your configured credentials.</p>';
     echo '<button type="submit" class="btn btn-info">Test Connection</button>';
     echo '</form>';
@@ -248,6 +261,7 @@ function oblio_output($vars)
     echo '<div class="panel-body">';
     echo '<form method="post" action="' . htmlspecialchars($moduleLink, ENT_QUOTES, 'UTF-8') . '" class="form-inline">';
     echo '<input type="hidden" name="action" value="sync_invoice">';
+    echo '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') . '">';
     echo '<div class="form-group" style="margin-right:10px;">';
     echo '<label for="invoice_id" style="margin-right:5px;">Invoice ID:</label>';
     echo '<input type="number" name="invoice_id" id="invoice_id" class="form-control" required>';
