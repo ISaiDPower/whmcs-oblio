@@ -56,7 +56,13 @@ class WhmcsHelper
 
         $products = [];
         if (!empty($invoice['items']['item'])) {
-            foreach ($invoice['items']['item'] as $item) {
+            $items = $invoice['items']['item'];
+            // Normalize single item to array of items (WHMCS may return a flat
+            // associative array instead of an indexed array when there is only one item)
+            if (isset($items['id'])) {
+                $items = [$items];
+            }
+            foreach ($items as $item) {
                 if ((float)$item['amount'] == 0) {
                     continue;
                 }
